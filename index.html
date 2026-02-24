@@ -252,6 +252,15 @@
       color: #2d3748;
     }
 
+    .settings-section-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #a0aec0;
+      margin: 0.6rem 0 0.5rem;
+    }
+
     .btn-secondary {
       background: #e2e8f0;
       color: #4a5568;
@@ -305,13 +314,15 @@
   <canvas id="bpChart"></canvas>
 </div>
 
-<!-- Reminders Settings Card -->
+<!-- Settings Card -->
 <div class="card">
   <div class="settings-toggle" onclick="reminderUI.togglePanel()">
-    <h2>⏰ Reminders</h2>
+    <h2>⚙️ Settings</h2>
     <span id="settingsChevron">▼</span>
   </div>
   <div class="settings-body hidden" id="settingsBody">
+
+    <p class="settings-section-label">⏰ Reminders</p>
     <div id="permissionWarning" style="display:none">
       ⚠️ Notification permission denied. Please allow notifications in your browser settings.
     </div>
@@ -332,8 +343,14 @@
       </select>
     </div>
     <div class="time-slots" id="timeSlots"></div>
-    <button class="btn btn-secondary" onclick="reminderUI.test()" style="margin-bottom:0.5rem">🔔 Test Notification</button>
-    <div id="installSection" style="display:none; margin-top:0.5rem">
+    <button class="btn btn-secondary" onclick="reminderUI.test()" style="margin-bottom:0.8rem">🔔 Test Notification</button>
+
+    <p class="settings-section-label">💾 Data</p>
+    <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
+    <button class="btn btn-import" onclick="app.importCsv()">⬆ Import CSV</button>
+    <input type="file" id="importFile" accept=".csv" style="display:none" onchange="app.handleImportFile(this)" />
+
+    <div id="installSection" style="display:none; margin-top:0.8rem">
       <button class="btn btn-primary" id="installBtn" onclick="installApp()" style="margin-bottom:0.4rem">📲 Install App</button>
     </div>
     <div id="iosInstallHint" style="display:none; font-size:0.8rem; color:#4a5568; background:#ebf8ff; border-radius:6px; padding:0.5rem 0.7rem; margin-top:0.4rem">
@@ -361,10 +378,8 @@
         <tr><td colspan="6" class="empty-msg">No records yet.</td></tr>
       </tbody>
     </table>
+    <div id="scrollSentinel" style="height:1px"></div>
   </div>
-  <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
-  <button class="btn btn-import" onclick="app.importCsv()">⬆ Import CSV</button>
-  <input type="file" id="importFile" accept=".csv" style="display:none" onchange="app.handleImportFile(this)" />
 </div>
 
 <div id="toast"></div>
@@ -467,33 +482,65 @@ function renderChart(records) {
   }
 }
 
-/* ── Table ───────────────────────────────────────────────────────── */
+/* ── Table with infinite scroll ──────────────────────────────────── */
+const PAGE_SIZE = 20;
+let _tableRecords = [];
+let _renderedCount = 0;
+let _sentinel = null;
+let _observer = null;
+
+function rowHtml(r) {
+  const d = new Date(r.timestamp);
+  const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const cat = bpCategory(r.sys, r.dia);
+  return `<tr>
+    <td>${dateStr}</td>
+    <td><strong>${r.sys}</strong></td>
+    <td><strong>${r.dia}</strong></td>
+    <td>${r.pulse ?? '—'}</td>
+    <td><span class="badge ${cat.cls}">${cat.label}</span></td>
+    <td><button class="btn-delete" onclick="app.deleteEntry(${r.id})" title="Delete">🗑</button></td>
+  </tr>`;
+}
+
+function appendRows() {
+  const tbody = document.getElementById('historyBody');
+  const next = _tableRecords.slice(_renderedCount, _renderedCount + PAGE_SIZE);
+  tbody.insertAdjacentHTML('beforeend', next.map(rowHtml).join(''));
+  _renderedCount += next.length;
+  if (_renderedCount >= _tableRecords.length && _observer) {
+    _observer.disconnect();
+    _observer = null;
+  }
+}
+
 function renderTable(records) {
   const tbody = document.getElementById('historyBody');
   const exportBtn = document.getElementById('exportBtn');
 
+  if (_observer) { _observer.disconnect(); _observer = null; }
+
   if (!records.length) {
     tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No records yet.</td></tr>';
     exportBtn.style.display = 'none';
+    _tableRecords = [];
+    _renderedCount = 0;
     return;
   }
 
   exportBtn.style.display = '';
+  _tableRecords = [...records].sort((a, b) => b.timestamp - a.timestamp);
+  _renderedCount = 0;
+  tbody.innerHTML = '';
+  appendRows();
 
-  const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
-  tbody.innerHTML = sorted.map(r => {
-    const d = new Date(r.timestamp);
-    const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const cat = bpCategory(r.sys, r.dia);
-    return `<tr>
-      <td>${dateStr}</td>
-      <td><strong>${r.sys}</strong></td>
-      <td><strong>${r.dia}</strong></td>
-      <td>${r.pulse ?? '—'}</td>
-      <td><span class="badge ${cat.cls}">${cat.label}</span></td>
-      <td><button class="btn-delete" onclick="app.deleteEntry(${r.id})" title="Delete">🗑</button></td>
-    </tr>`;
-  }).join('');
+  if (_renderedCount < _tableRecords.length) {
+    _sentinel = document.getElementById('scrollSentinel');
+    _observer = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting) appendRows();
+    }, { rootMargin: '100px' });
+    _observer.observe(_sentinel);
+  }
 }
 
 /* ── Clock ───────────────────────────────────────────────────────── */
