@@ -453,8 +453,7 @@ function renderChart(records) {
 
   const labels = sorted.map(r => {
     const d = new Date(r.timestamp);
-    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-         + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return formatDate(d) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   });
 
   const datasets = [
@@ -491,7 +490,7 @@ let _observer = null;
 
 function rowHtml(r) {
   const d = new Date(r.timestamp);
-  const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const dateStr = formatDate(d) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const cat = bpCategory(r.sys, r.dia);
   return `<tr>
     <td>${dateStr}</td>
@@ -543,10 +542,19 @@ function renderTable(records) {
   }
 }
 
+/* ── Date formatting ─────────────────────────────────────────────── */
+function formatDate(d) {
+  const y  = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
 /* ── Clock ───────────────────────────────────────────────────────── */
 function updateClock() {
+  const d = new Date();
   document.getElementById('currentTime').textContent =
-    new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    formatDate(d) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
 /* ── Toast ───────────────────────────────────────────────────────── */
@@ -644,7 +652,7 @@ const app = (() => {
       const header = 'Date,Time,Systolic,Diastolic,Pulse,Category';
       const rows = sorted.map(r => {
         const d = new Date(r.timestamp);
-        const date = d.toLocaleDateString();
+        const date = formatDate(d);
         const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const cat  = bpCategory(r.sys, r.dia).label;
         return [date, time, r.sys, r.dia, r.pulse ?? '', cat].join(',');
