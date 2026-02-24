@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blood Pressure Monitor</title>
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2b6cb0" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f0f4f8;
+      color: #1a202c;
+      padding: 1rem;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 1rem;
+      color: #2b6cb0;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 1.2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 1.2rem;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.8rem;
+      color: #2d3748;
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0.6rem;
+      margin-bottom: 0.8rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: #718096;
+      margin-bottom: 0.25rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .form-group input[type="number"] {
+      width: 100%;
+      padding: 0.6rem 0.5rem;
+      font-size: 1.2rem;
+      font-weight: 700;
+      border: 2px solid #e2e8f0;
+      border-radius: 8px;
+      text-align: center;
+      color: #2d3748;
+      transition: border-color 0.2s;
+    }
+
+    .form-group input[type="number"]:focus {
+      outline: none;
+      border-color: #4299e1;
+    }
+
+    .timestamp-row {
+      font-size: 0.8rem;
+      color: #718096;
+      text-align: center;
+      margin-bottom: 0.8rem;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 0.75rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn-primary { background: #3182ce; color: #fff; }
+    .btn-primary:active { background: #2b6cb0; }
+
+    .btn-export { background: #38a169; color: #fff; margin-top: 0.5rem; }
+    .btn-export:active { background: #2f855a; }
+
+    .btn-delete {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: #e53e3e;
+      font-size: 1rem;
+      padding: 0.2rem 0.4rem;
+      border-radius: 4px;
+    }
+    .btn-delete:active { background: #fff5f5; }
+
+    #toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #2d3748;
+      color: #fff;
+      padding: 0.5rem 1.2rem;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    #toast.show { opacity: 1; }
+
+    /* Table */
+    .table-wrap { overflow-x: auto; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+    thead th {
+      background: #ebf8ff;
+      padding: 0.5rem 0.4rem;
+      text-align: center;
+      font-weight: 700;
+      color: #2b6cb0;
+      white-space: nowrap;
+    }
+    tbody tr:nth-child(even) { background: #f7fafc; }
+    tbody td {
+      padding: 0.45rem 0.4rem;
+      text-align: center;
+      color: #4a5568;
+    }
+
+    .empty-msg {
+      text-align: center;
+      color: #a0aec0;
+      font-size: 0.9rem;
+      padding: 1rem 0;
+    }
+
+    /* BP category badge */
+    .badge {
+      display: inline-block;
+      padding: 0.15rem 0.45rem;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .badge-normal   { background: #c6f6d5; color: #276749; }
+    .badge-elevated { background: #fefcbf; color: #744210; }
+    .badge-high1    { background: #fed7aa; color: #7b341e; }
+    .badge-high2    { background: #feb2b2; color: #742a2a; }
+    .badge-crisis   { background: #9b2c2c; color: #fff; }
+
+    /* Chart */
+    canvas { max-width: 100%; }
+
+    /* Reminders settings */
+    .settings-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      cursor: pointer;
+      user-select: none;
+    }
+    .settings-toggle h2 { margin: 0; }
+    .settings-body { margin-top: 0.8rem; }
+    .settings-body.hidden { display: none; }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.8rem;
+    }
+    .toggle-row label { font-size: 0.9rem; color: #4a5568; }
+
+    /* iOS-style toggle switch */
+    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute; inset: 0;
+      background: #cbd5e0; border-radius: 24px;
+      transition: background 0.2s;
+      cursor: pointer;
+    }
+    .slider::before {
+      content: '';
+      position: absolute;
+      width: 18px; height: 18px;
+      left: 3px; bottom: 3px;
+      background: #fff; border-radius: 50%;
+      transition: transform 0.2s;
+    }
+    .switch input:checked + .slider { background: #3182ce; }
+    .switch input:checked + .slider::before { transform: translateX(20px); }
+
+    .reminder-count-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 0.8rem;
+      font-size: 0.9rem;
+      color: #4a5568;
+    }
+    .reminder-count-row select {
+      padding: 0.3rem 0.5rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #2d3748;
+    }
+
+    .time-slots { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.8rem; }
+    .time-slot {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #718096;
+    }
+    .time-slot input[type="time"] {
+      padding: 0.35rem 0.5rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      color: #2d3748;
+    }
+
+    .btn-secondary {
+      background: #e2e8f0;
+      color: #4a5568;
+      font-size: 0.85rem;
+      padding: 0.5rem;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-secondary:active { background: #cbd5e0; }
+
+    #permissionWarning {
+      font-size: 0.8rem;
+      color: #c05621;
+      background: #fffaf0;
+      border: 1px solid #fbd38d;
+      border-radius: 6px;
+      padding: 0.4rem 0.6rem;
+      margin-bottom: 0.6rem;
+    }
+  </style>
+</head>
+<body>
+
+<h1>💉 Blood Pressure Monitor</h1>
+
+<!-- Input Card -->
+<div class="card">
+  <h2>New Measurement</h2>
+  <div class="form-grid">
+    <div class="form-group">
+      <label for="sys">Sys <small>mmHg</small></label>
+      <input id="sys" type="number" min="60" max="300" placeholder="120" />
+    </div>
+    <div class="form-group">
+      <label for="dia">Dia <small>mmHg</small></label>
+      <input id="dia" type="number" min="40" max="200" placeholder="80" />
+    </div>
+    <div class="form-group">
+      <label for="pulse">Pulse <small>bpm</small></label>
+      <input id="pulse" type="number" min="30" max="250" placeholder="70" />
+    </div>
+  </div>
+  <div class="timestamp-row" id="currentTime"></div>
+  <button class="btn btn-primary" onclick="app.save()">Save</button>
+</div>
+
+<!-- Chart Card -->
+<div class="card" id="chartCard" style="display:none">
+  <h2>Trend</h2>
+  <canvas id="bpChart"></canvas>
+</div>
+
+<!-- Reminders Settings Card -->
+<div class="card">
+  <div class="settings-toggle" onclick="reminderUI.togglePanel()">
+    <h2>⏰ Reminders</h2>
+    <span id="settingsChevron">▼</span>
+  </div>
+  <div class="settings-body hidden" id="settingsBody">
+    <div id="permissionWarning" style="display:none">
+      ⚠️ Notification permission denied. Please allow notifications in your browser settings.
+    </div>
+    <div class="toggle-row">
+      <label class="switch">
+        <input type="checkbox" id="reminderEnabled" onchange="reminderUI.onToggle()" />
+        <span class="slider"></span>
+      </label>
+      <label for="reminderEnabled">Enable reminders</label>
+    </div>
+    <div class="reminder-count-row">
+      <label for="reminderCount">Reminders per day:</label>
+      <select id="reminderCount" onchange="reminderUI.onCountChange()">
+        <option value="1">1</option>
+        <option value="2" selected>2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+      </select>
+    </div>
+    <div class="time-slots" id="timeSlots"></div>
+    <button class="btn btn-secondary" onclick="reminderUI.test()" style="margin-bottom:0.5rem">🔔 Test Notification</button>
+  </div>
+</div>
+
+<!-- History Card -->
+<div class="card">
+  <h2>History</h2>
+  <div class="table-wrap">
+    <table id="historyTable">
+      <thead>
+        <tr>
+          <th>Date &amp; Time</th>
+          <th>Sys</th>
+          <th>Dia</th>
+          <th>Pulse</th>
+          <th>Category</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="historyBody">
+        <tr><td colspan="6" class="empty-msg">No records yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ── IndexedDB layer ─────────────────────────────────────────────── */
+const DB_NAME = 'bpmonitor';
+const DB_VERSION = 1;
+const STORE = 'measurements';
+
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const store = db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+        store.createIndex('timestamp', 'timestamp', { unique: false });
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function addRecord(db, record) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).add(record);
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function getAllRecords(db) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+function deleteRecord(db, id) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const req = tx.objectStore(STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+/* ── BP Category ─────────────────────────────────────────────────── */
+function bpCategory(sys, dia) {
+  if (sys > 180 || dia > 120) return { label: 'Crisis',    cls: 'badge-crisis'   };
+  if (sys >= 140 || dia >= 90) return { label: 'High II',  cls: 'badge-high2'    };
+  if (sys >= 130 || dia >= 80) return { label: 'High I',   cls: 'badge-high1'    };
+  if (sys >= 120)              return { label: 'Elevated',  cls: 'badge-elevated' };
+  return                              { label: 'Normal',    cls: 'badge-normal'   };
+}
+
+/* ── Chart ───────────────────────────────────────────────────────── */
+let bpChart = null;
+
+function renderChart(records) {
+  const sorted = [...records].sort((a, b) => a.timestamp - b.timestamp);
+  const chartCard = document.getElementById('chartCard');
+
+  if (sorted.length < 2) { chartCard.style.display = 'none'; return; }
+  chartCard.style.display = '';
+
+  const labels = sorted.map(r => {
+    const d = new Date(r.timestamp);
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+         + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  });
+
+  const datasets = [
+    { label: 'Systolic',  data: sorted.map(r => r.sys),   borderColor: '#e53e3e', backgroundColor: 'rgba(229,62,62,0.1)',  tension: 0.3, fill: false },
+    { label: 'Diastolic', data: sorted.map(r => r.dia),   borderColor: '#3182ce', backgroundColor: 'rgba(49,130,206,0.1)', tension: 0.3, fill: false },
+    { label: 'Pulse',     data: sorted.map(r => r.pulse), borderColor: '#38a169', backgroundColor: 'rgba(56,161,105,0.1)', tension: 0.3, fill: false },
+  ];
+
+  if (bpChart) {
+    bpChart.data.labels = labels;
+    bpChart.data.datasets = datasets;
+    bpChart.update();
+  } else {
+    bpChart = new Chart(document.getElementById('bpChart'), {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        plugins: { legend: { position: 'bottom' } },
+        scales: {
+          y: { beginAtZero: false, min: 40 }
+        }
+      }
+    });
+  }
+}
+
+/* ── Table ───────────────────────────────────────────────────────── */
+function renderTable(records) {
+  const tbody = document.getElementById('historyBody');
+  const exportBtn = document.getElementById('exportBtn');
+
+  if (!records.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-msg">No records yet.</td></tr>';
+    exportBtn.style.display = 'none';
+    return;
+  }
+
+  exportBtn.style.display = '';
+
+  const sorted = [...records].sort((a, b) => b.timestamp - a.timestamp);
+  tbody.innerHTML = sorted.map(r => {
+    const d = new Date(r.timestamp);
+    const dateStr = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const cat = bpCategory(r.sys, r.dia);
+    return `<tr>
+      <td>${dateStr}</td>
+      <td><strong>${r.sys}</strong></td>
+      <td><strong>${r.dia}</strong></td>
+      <td>${r.pulse ?? '—'}</td>
+      <td><span class="badge ${cat.cls}">${cat.label}</span></td>
+      <td><button class="btn-delete" onclick="app.deleteEntry(${r.id})" title="Delete">🗑</button></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── Clock ───────────────────────────────────────────────────────── */
+function updateClock() {
+  document.getElementById('currentTime').textContent =
+    new Date().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/* ── Toast ───────────────────────────────────────────────────────── */
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+/* ── App ─────────────────────────────────────────────────────────── */
+const app = (() => {
+  let db = null;
+
+  async function init() {
+    db = await openDB();
+    updateClock();
+    setInterval(updateClock, 30000);
+    await refresh();
+  }
+
+  async function refresh() {
+    const records = await getAllRecords(db);
+    renderTable(records);
+    renderChart(records);
+  }
+
+  async function save() {
+    const sys   = parseInt(document.getElementById('sys').value, 10);
+    const dia   = parseInt(document.getElementById('dia').value, 10);
+    const pulse = parseInt(document.getElementById('pulse').value, 10);
+
+    if (!sys || !dia) { toast('Please enter Sys and Dia values.'); return; }
+
+    await addRecord(db, { sys, dia, pulse: isNaN(pulse) ? null : pulse, timestamp: Date.now() });
+    document.getElementById('sys').value = '';
+    document.getElementById('dia').value = '';
+    document.getElementById('pulse').value = '';
+    toast('Saved ✓');
+    await refresh();
+  }
+
+  async function deleteEntry(id) {
+    await deleteRecord(db, id);
+    await refresh();
+  }
+
+  function exportCsv() {
+    getAllRecords(db).then(records => {
+      if (!records.length) return;
+      const sorted = [...records].sort((a, b) => a.timestamp - b.timestamp);
+      const header = 'Date,Time,Systolic,Diastolic,Pulse,Category';
+      const rows = sorted.map(r => {
+        const d = new Date(r.timestamp);
+        const date = d.toLocaleDateString();
+        const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const cat  = bpCategory(r.sys, r.dia).label;
+        return [date, time, r.sys, r.dia, r.pulse ?? '', cat].join(',');
+      });
+      const csv  = [header, ...rows].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement('a'), {
+        href: url,
+        download: `bp-measurements-${new Date().toISOString().slice(0,10)}.csv`
+      });
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  }
+
+  init();
+  return { save, deleteEntry, exportCsv };
+})();
+
+/* ── Service Worker Registration ─────────────────────────────────── */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(err => console.warn('SW registration failed:', err));
+  });
+}
+
+/* ── Reminder System ─────────────────────────────────────────────── */
+const reminders = (() => {
+  const STORAGE_KEY = 'bpReminderSettings';
+  const DEFAULTS = { enabled: false, count: 2, times: ['09:00', '21:00'] };
+
+  let settings = DEFAULTS;
+  let timers = [];
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) settings = { ...DEFAULTS, ...JSON.parse(raw) };
+    } catch (_) { settings = { ...DEFAULTS }; }
+    return settings;
+  }
+
+  function save(s) {
+    settings = s;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  }
+
+  function cancelAll() {
+    timers.forEach(clearTimeout);
+    timers = [];
+  }
+
+  function msUntil(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    const now = new Date();
+    const target = new Date(now);
+    target.setHours(h, m, 0, 0);
+    if (target <= now) target.setDate(target.getDate() + 1);
+    return target - now;
+  }
+
+  async function notify() {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const title = '💉 Blood Pressure Reminder';
+    const body  = 'Time to take your blood pressure measurement.';
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.ready;
+      reg.showNotification(title, { body, icon: 'data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 100 100\'><text y=\'.9em\' font-size=\'90\'>💉</text></svg>', tag: 'bp-reminder' });
+    } else {
+      new Notification(title, { body });
+    }
+  }
+
+  function scheduleAll() {
+    cancelAll();
+    if (!settings.enabled) return;
+    const times = settings.times.slice(0, settings.count);
+    times.forEach(t => {
+      const delay = msUntil(t);
+      const tid = setTimeout(() => {
+        notify();
+        // Reschedule for the next day
+        const nextDelay = msUntil(t);
+        const nextTid = setTimeout(function reschedule() {
+          notify();
+          timers.push(setTimeout(reschedule, msUntil(t)));
+        }, nextDelay);
+        timers.push(nextTid);
+      }, delay);
+      timers.push(tid);
+    });
+  }
+
+  async function requestPermission() {
+    if (!('Notification' in window)) return 'unsupported';
+    if (Notification.permission === 'granted') return 'granted';
+    if (Notification.permission === 'denied') return 'denied';
+    return await Notification.requestPermission();
+  }
+
+  function getSettings() { return { ...settings }; }
+
+  return { load, save, scheduleAll, cancelAll, requestPermission, getSettings, notify };
+})();
+
+/* ── Reminder UI ─────────────────────────────────────────────────── */
+const reminderUI = (() => {
+  let panelOpen = false;
+
+  function renderTimeSlots() {
+    const s = reminders.getSettings();
+    const container = document.getElementById('timeSlots');
+    const times = s.times.length >= s.count ? s.times : [
+      ...s.times, ...['09:00','21:00','12:00','18:00'].slice(s.times.length, s.count)
+    ];
+    container.innerHTML = '';
+    for (let i = 0; i < s.count; i++) {
+      const div = document.createElement('div');
+      div.className = 'time-slot';
+      div.innerHTML = `<span>Reminder ${i + 1}:</span>
+        <input type="time" value="${times[i] || '09:00'}" data-idx="${i}" onchange="reminderUI.onTimeChange(this)" />`;
+      container.appendChild(div);
+    }
+  }
+
+  function syncUI() {
+    const s = reminders.getSettings();
+    document.getElementById('reminderEnabled').checked = s.enabled;
+    document.getElementById('reminderCount').value = String(s.count);
+    renderTimeSlots();
+    checkPermissionWarning();
+  }
+
+  function checkPermissionWarning() {
+    const warn = document.getElementById('permissionWarning');
+    const s = reminders.getSettings();
+    if (s.enabled && 'Notification' in window && Notification.permission === 'denied') {
+      warn.style.display = '';
+    } else {
+      warn.style.display = 'none';
+    }
+  }
+
+  function applyChange() {
+    const enabled = document.getElementById('reminderEnabled').checked;
+    const count   = parseInt(document.getElementById('reminderCount').value, 10);
+    const timeInputs = document.querySelectorAll('#timeSlots input[type="time"]');
+    const times = Array.from(timeInputs).map(i => i.value);
+    reminders.save({ enabled, count, times });
+    reminders.scheduleAll();
+    checkPermissionWarning();
+  }
+
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    document.getElementById('settingsBody').classList.toggle('hidden', !panelOpen);
+    document.getElementById('settingsChevron').textContent = panelOpen ? '▲' : '▼';
+  }
+
+  async function onToggle() {
+    const checked = document.getElementById('reminderEnabled').checked;
+    if (checked) {
+      const perm = await reminders.requestPermission();
+      if (perm !== 'granted') {
+        document.getElementById('reminderEnabled').checked = false;
+        checkPermissionWarning();
+        return;
+      }
+    }
+    applyChange();
+  }
+
+  function onCountChange() {
+    const count = parseInt(document.getElementById('reminderCount').value, 10);
+    const s = reminders.getSettings();
+    const times = s.times.slice();
+    while (times.length < count) times.push(['09:00','21:00','12:00','18:00'][times.length] || '09:00');
+    reminders.save({ ...s, count, times });
+    renderTimeSlots();
+    applyChange();
+  }
+
+  function onTimeChange(input) {
+    applyChange();
+  }
+
+  function test() {
+    reminders.requestPermission().then(perm => {
+      if (perm === 'granted') reminders.notify();
+      else checkPermissionWarning();
+    });
+  }
+
+  function init() {
+    reminders.load();
+    syncUI();
+    reminders.scheduleAll();
+  }
+
+  return { init, togglePanel, onToggle, onCountChange, onTimeChange, test };
+})();
+
+reminderUI.init();
+</script>
+</body>
+</html>
