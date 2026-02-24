@@ -1,5 +1,5 @@
 const CACHE = 'bp-monitor-v1';
-const CACHED_URLS = ['/', '/index.html'];
+const CACHED_URLS = ['/', '/index.html', '/icon-192.png', '/icon-512.png', '/manifest.json'];
 
 self.addEventListener('install', event => {
   event.waitUntil(
