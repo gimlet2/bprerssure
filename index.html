@@ -104,6 +104,9 @@
     .btn-export { background: #38a169; color: #fff; margin-top: 0.5rem; }
     .btn-export:active { background: #2f855a; }
 
+    .btn-import { background: #805ad5; color: #fff; margin-top: 0.5rem; }
+    .btn-import:active { background: #6b46c1; }
+
     .btn-delete {
       background: none;
       border: none;
@@ -360,6 +363,8 @@
     </table>
   </div>
   <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
+  <button class="btn btn-import" onclick="app.importCsv()">⬆ Import CSV</button>
+  <input type="file" id="importFile" accept=".csv" style="display:none" onchange="app.handleImportFile(this)" />
 </div>
 
 <div id="toast"></div>
@@ -542,6 +547,49 @@ const app = (() => {
     await refresh();
   }
 
+  function importCsv() {
+    const input = document.getElementById('importFile');
+    input.value = '';
+    input.click();
+  }
+
+  async function handleImportFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (!lines.length) { toast('Empty file.'); return; }
+
+    // Skip header row
+    const dataLines = lines[0].toLowerCase().startsWith('date') ? lines.slice(1) : lines;
+
+    const existing = await getAllRecords(db);
+    const existingTs = new Set(existing.map(r => r.timestamp));
+
+    let imported = 0, skipped = 0;
+    for (const line of dataLines) {
+      // Split on comma but respect potential locale dates that may contain commas (unlikely, but safe)
+      const parts = line.split(',');
+      if (parts.length < 4) { skipped++; continue; }
+      const [dateStr, timeStr, sysStr, diaStr, pulseStr] = parts;
+      const sys   = parseInt(sysStr, 10);
+      const dia   = parseInt(diaStr, 10);
+      const pulse = parseInt(pulseStr, 10);
+      if (!sys || !dia || sys < 60 || sys > 300 || dia < 40 || dia > 200) { skipped++; continue; }
+
+      const ts = new Date(dateStr.trim() + ' ' + timeStr.trim()).getTime();
+      if (!ts || isNaN(ts)) { skipped++; continue; }
+      if (existingTs.has(ts)) { skipped++; continue; }
+
+      await addRecord(db, { sys, dia, pulse: isNaN(pulse) ? null : pulse, timestamp: ts });
+      existingTs.add(ts);
+      imported++;
+    }
+
+    await refresh();
+    toast(`Imported ${imported} record${imported !== 1 ? 's' : ''}${skipped ? ` (${skipped} skipped)` : ''} ✓`);
+  }
+
   function exportCsv() {
     getAllRecords(db).then(records => {
       if (!records.length) return;
@@ -567,7 +615,7 @@ const app = (() => {
   }
 
   init();
-  return { save, deleteEntry, exportCsv };
+  return { save, deleteEntry, exportCsv, importCsv, handleImportFile };
 })();
 
 /* ── Service Worker Registration ─────────────────────────────────── */
