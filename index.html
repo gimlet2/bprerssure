@@ -330,6 +330,12 @@
     </div>
     <div class="time-slots" id="timeSlots"></div>
     <button class="btn btn-secondary" onclick="reminderUI.test()" style="margin-bottom:0.5rem">🔔 Test Notification</button>
+    <div id="installSection" style="display:none; margin-top:0.5rem">
+      <button class="btn btn-primary" id="installBtn" onclick="installApp()" style="margin-bottom:0.4rem">📲 Install App</button>
+    </div>
+    <div id="iosInstallHint" style="display:none; font-size:0.8rem; color:#4a5568; background:#ebf8ff; border-radius:6px; padding:0.5rem 0.7rem; margin-top:0.4rem">
+      📱 On iOS: tap <strong>Share</strong> → <strong>Add to Home Screen</strong> in Safari to install.
+    </div>
   </div>
 </div>
 
@@ -745,6 +751,37 @@ const reminderUI = (() => {
   }
 
   return { init, togglePanel, onToggle, onCountChange, onTimeChange, test };
+})();
+
+/* ── PWA Install ─────────────────────────────────────────────────── */
+let _deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  document.getElementById('installSection').style.display = '';
+  document.getElementById('iosInstallHint').style.display = 'none';
+});
+
+window.addEventListener('appinstalled', () => {
+  _deferredInstallPrompt = null;
+  document.getElementById('installSection').style.display = 'none';
+});
+
+async function installApp() {
+  if (!_deferredInstallPrompt) return;
+  _deferredInstallPrompt.prompt();
+  const { outcome } = await _deferredInstallPrompt.userChoice;
+  if (outcome === 'accepted') _deferredInstallPrompt = null;
+}
+
+// Show iOS hint when running in Safari on iOS and not already installed
+(function detectIOS() {
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isStandalone = window.navigator.standalone === true;
+  if (isIOS && !isStandalone) {
+    document.getElementById('iosInstallHint').style.display = '';
+  }
 })();
 
 reminderUI.init();
