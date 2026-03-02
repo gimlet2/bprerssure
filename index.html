@@ -192,34 +192,6 @@
     .settings-body { margin-top: 0.8rem; }
     .settings-body.hidden { display: none; }
 
-    .toggle-row {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      margin-bottom: 0.8rem;
-    }
-    .toggle-row label { font-size: 0.9rem; color: #4a5568; }
-
-    /* iOS-style toggle switch */
-    .switch { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
-    .switch input { opacity: 0; width: 0; height: 0; }
-    .slider {
-      position: absolute; inset: 0;
-      background: #cbd5e0; border-radius: 24px;
-      transition: background 0.2s;
-      cursor: pointer;
-    }
-    .slider::before {
-      content: '';
-      position: absolute;
-      width: 18px; height: 18px;
-      left: 3px; bottom: 3px;
-      background: #fff; border-radius: 50%;
-      transition: transform 0.2s;
-    }
-    .switch input:checked + .slider { background: #3182ce; }
-    .switch input:checked + .slider::before { transform: translateX(20px); }
-
     .reminder-count-row {
       display: flex;
       align-items: center;
@@ -334,14 +306,10 @@
     .btn-confirm-delete:active { background: #c53030; }
 
     #permissionWarning {
-      font-size: 0.8rem;
-      color: #c05621;
-      background: #fffaf0;
-      border: 1px solid #fbd38d;
-      border-radius: 6px;
-      padding: 0.4rem 0.6rem;
-      margin-bottom: 0.6rem;
+      display: none;
     }
+    .btn-calendar { background: #3182ce; color: #fff; margin-top: 0.5rem; }
+    .btn-calendar:active { background: #2b6cb0; }
   </style>
 </head>
 <body>
@@ -384,16 +352,6 @@
   <div class="settings-body hidden" id="settingsBody">
 
     <p class="settings-section-label">⏰ Reminders</p>
-    <div id="permissionWarning" style="display:none">
-      ⚠️ Notification permission denied. Please allow notifications in your browser settings.
-    </div>
-    <div class="toggle-row">
-      <label class="switch">
-        <input type="checkbox" id="reminderEnabled" onchange="reminderUI.onToggle()" />
-        <span class="slider"></span>
-      </label>
-      <label for="reminderEnabled">Enable reminders</label>
-    </div>
     <div class="reminder-count-row">
       <label for="reminderCount">Reminders per day:</label>
       <select id="reminderCount" onchange="reminderUI.onCountChange()">
@@ -404,7 +362,7 @@
       </select>
     </div>
     <div class="time-slots" id="timeSlots"></div>
-    <button class="btn btn-secondary" onclick="reminderUI.test()" style="margin-bottom:0.8rem">🔔 Test Notification</button>
+    <button class="btn btn-calendar" onclick="reminderUI.downloadIcs()">📅 Add to Calendar</button>
 
     <p class="settings-section-label">💾 Data</p>
     <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
@@ -783,131 +741,38 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ── Reminder System ─────────────────────────────────────────────── */
-const reminders = (() => {
+/* ── Reminder UI (ICS-based) ─────────────────────────────────────── */
+const reminderUI = (() => {
   const STORAGE_KEY = 'bpReminderSettings';
-  const DEFAULTS = { enabled: false, count: 2, times: ['09:00', '21:00'] };
-
-  let settings = DEFAULTS;
-  let timers = [];
+  const DEFAULTS = { count: 2, times: ['09:00', '21:00'] };
+  let settings = { ...DEFAULTS };
+  let panelOpen = false;
 
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) settings = { ...DEFAULTS, ...JSON.parse(raw) };
     } catch (_) { settings = { ...DEFAULTS }; }
-    return settings;
   }
 
-  function save(s) {
-    settings = s;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  function persist() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   }
-
-  function cancelAll() {
-    timers.forEach(clearTimeout);
-    timers = [];
-  }
-
-  function msUntil(timeStr) {
-    const [h, m] = timeStr.split(':').map(Number);
-    const now = new Date();
-    const target = new Date(now);
-    target.setHours(h, m, 0, 0);
-    if (target <= now) target.setDate(target.getDate() + 1);
-    return target - now;
-  }
-
-  async function notify() {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const title = '💉 Blood Pressure Reminder';
-    const body  = 'Time to take your blood pressure measurement.';
-    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-      const reg = await navigator.serviceWorker.ready;
-      reg.showNotification(title, { body, icon: 'icon-192.png', tag: 'bp-reminder' });
-    } else {
-      new Notification(title, { body });
-    }
-  }
-
-  function scheduleAll() {
-    cancelAll();
-    if (!settings.enabled) return;
-    const times = settings.times.slice(0, settings.count);
-    times.forEach(t => {
-      const delay = msUntil(t);
-      const tid = setTimeout(() => {
-        notify();
-        // Reschedule for the next day
-        const nextDelay = msUntil(t);
-        const nextTid = setTimeout(function reschedule() {
-          notify();
-          timers.push(setTimeout(reschedule, msUntil(t)));
-        }, nextDelay);
-        timers.push(nextTid);
-      }, delay);
-      timers.push(tid);
-    });
-  }
-
-  async function requestPermission() {
-    if (!('Notification' in window)) return 'unsupported';
-    if (Notification.permission === 'granted') return 'granted';
-    if (Notification.permission === 'denied') return 'denied';
-    return await Notification.requestPermission();
-  }
-
-  function getSettings() { return { ...settings }; }
-
-  return { load, save, scheduleAll, cancelAll, requestPermission, getSettings, notify };
-})();
-
-/* ── Reminder UI ─────────────────────────────────────────────────── */
-const reminderUI = (() => {
-  let panelOpen = false;
 
   function renderTimeSlots() {
-    const s = reminders.getSettings();
     const container = document.getElementById('timeSlots');
-    const times = s.times.length >= s.count ? s.times : [
-      ...s.times, ...['09:00','21:00','12:00','18:00'].slice(s.times.length, s.count)
-    ];
+    const fallbacks = ['09:00', '21:00', '12:00', '18:00'];
+    while (settings.times.length < settings.count) {
+      settings.times.push(fallbacks[settings.times.length] || '09:00');
+    }
     container.innerHTML = '';
-    for (let i = 0; i < s.count; i++) {
+    for (let i = 0; i < settings.count; i++) {
       const div = document.createElement('div');
       div.className = 'time-slot';
       div.innerHTML = `<span>Reminder ${i + 1}:</span>
-        <input type="time" value="${times[i] || '09:00'}" data-idx="${i}" onchange="reminderUI.onTimeChange(this)" />`;
+        <input type="time" value="${settings.times[i]}" data-idx="${i}" onchange="reminderUI.onTimeChange(this)" />`;
       container.appendChild(div);
     }
-  }
-
-  function syncUI() {
-    const s = reminders.getSettings();
-    document.getElementById('reminderEnabled').checked = s.enabled;
-    document.getElementById('reminderCount').value = String(s.count);
-    renderTimeSlots();
-    checkPermissionWarning();
-  }
-
-  function checkPermissionWarning() {
-    const warn = document.getElementById('permissionWarning');
-    const s = reminders.getSettings();
-    if (s.enabled && 'Notification' in window && Notification.permission === 'denied') {
-      warn.style.display = '';
-    } else {
-      warn.style.display = 'none';
-    }
-  }
-
-  function applyChange() {
-    const enabled = document.getElementById('reminderEnabled').checked;
-    const count   = parseInt(document.getElementById('reminderCount').value, 10);
-    const timeInputs = document.querySelectorAll('#timeSlots input[type="time"]');
-    const times = Array.from(timeInputs).map(i => i.value);
-    reminders.save({ enabled, count, times });
-    reminders.scheduleAll();
-    checkPermissionWarning();
   }
 
   function togglePanel() {
@@ -916,47 +781,73 @@ const reminderUI = (() => {
     document.getElementById('settingsChevron').textContent = panelOpen ? '▲' : '▼';
   }
 
-  async function onToggle() {
-    const checked = document.getElementById('reminderEnabled').checked;
-    if (checked) {
-      const perm = await reminders.requestPermission();
-      if (perm !== 'granted') {
-        document.getElementById('reminderEnabled').checked = false;
-        checkPermissionWarning();
-        return;
-      }
-    }
-    applyChange();
-  }
-
   function onCountChange() {
-    const count = parseInt(document.getElementById('reminderCount').value, 10);
-    const s = reminders.getSettings();
-    const times = s.times.slice();
-    while (times.length < count) times.push(['09:00','21:00','12:00','18:00'][times.length] || '09:00');
-    reminders.save({ ...s, count, times });
+    settings.count = parseInt(document.getElementById('reminderCount').value, 10);
+    persist();
     renderTimeSlots();
-    applyChange();
   }
 
   function onTimeChange(input) {
-    applyChange();
+    settings.times[parseInt(input.dataset.idx, 10)] = input.value;
+    persist();
   }
 
-  function test() {
-    reminders.requestPermission().then(perm => {
-      if (perm === 'granted') reminders.notify();
-      else checkPermissionWarning();
+  function downloadIcs() {
+    const times = settings.times.slice(0, settings.count);
+    const now = new Date();
+    // Start from tomorrow
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    function icsDate(date, h, m) {
+      const pad = n => String(n).padStart(2, '0');
+      return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(h)}${pad(m)}00`;
+    }
+
+    const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}@bpmonitor`;
+
+    const events = times.map(t => {
+      const [h, m] = t.split(':').map(Number);
+      const dtStart = icsDate(start, h, m);
+      const dtEnd   = icsDate(start, h, m + 5 < 60 ? m + 5 : 59);
+      return [
+        'BEGIN:VEVENT',
+        `UID:${uid()}`,
+        `DTSTART:${dtStart}`,
+        `DTEND:${dtEnd}`,
+        'RRULE:FREQ=DAILY',
+        'SUMMARY:💉 Blood Pressure Measurement',
+        'DESCRIPTION:Time to take your blood pressure measurement.',
+        'END:VEVENT'
+      ].join('\r\n');
     });
+
+    const ics = [
+      'BEGIN:VCALENDAR',
+      'VERSION:2.0',
+      'PRODID:-//Blood Pressure Monitor//EN',
+      'CALSCALE:GREGORIAN',
+      'METHOD:PUBLISH',
+      ...events,
+      'END:VCALENDAR'
+    ].join('\r\n');
+
+    const blob = new Blob([ics], { type: 'text/calendar' });
+    const url  = URL.createObjectURL(blob);
+    const a    = Object.assign(document.createElement('a'), {
+      href: url,
+      download: 'bp-reminders.ics'
+    });
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   function init() {
-    reminders.load();
-    syncUI();
-    reminders.scheduleAll();
+    load();
+    document.getElementById('reminderCount').value = String(settings.count);
+    renderTimeSlots();
   }
 
-  return { init, togglePanel, onToggle, onCountChange, onTimeChange, test };
+  return { init, togglePanel, onCountChange, onTimeChange, downloadIcs };
 })();
 
 /* ── PWA Install ─────────────────────────────────────────────────── */
