@@ -803,20 +803,28 @@ const reminderUI = (() => {
       return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(h)}${pad(m)}00`;
     }
 
-    const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2)}@bpmonitor`;
+    const pad = n => String(n).padStart(2, '0');
+    const now = new Date();
+    const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+    let uidCounter = Date.now();
 
     const events = times.map(t => {
       const [h, m] = t.split(':').map(Number);
       const dtStart = icsDate(start, h, m);
-      const dtEnd   = icsDate(start, h, m + 5 < 60 ? m + 5 : 59);
       return [
         'BEGIN:VEVENT',
-        `UID:${uid()}`,
+        `UID:${uidCounter++}@bpmonitor`,
+        `DTSTAMP:${dtstamp}`,
         `DTSTART:${dtStart}`,
-        `DTEND:${dtEnd}`,
+        'DURATION:PT5M',
         'RRULE:FREQ=DAILY',
-        'SUMMARY:💉 Blood Pressure Measurement',
+        'SUMMARY:Blood Pressure Measurement',
         'DESCRIPTION:Time to take your blood pressure measurement.',
+        'BEGIN:VALARM',
+        'TRIGGER:PT0S',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Time to take your blood pressure measurement.',
+        'END:VALARM',
         'END:VEVENT'
       ].join('\r\n');
     });
