@@ -272,6 +272,67 @@
     }
     .btn-secondary:active { background: #cbd5e0; }
 
+    /* Confirmation dialog */
+    .confirm-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 1rem;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .confirm-overlay.show {
+      opacity: 1;
+      pointer-events: all;
+    }
+    .confirm-box {
+      background: #fff;
+      border-radius: 14px;
+      padding: 1.5rem 1.4rem 1.2rem;
+      max-width: 300px;
+      width: 100%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      text-align: center;
+      transform: scale(0.92);
+      transition: transform 0.15s;
+    }
+    .confirm-overlay.show .confirm-box { transform: scale(1); }
+    .confirm-box .confirm-icon { font-size: 2rem; margin-bottom: 0.4rem; }
+    .confirm-box .confirm-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #2d3748;
+      margin-bottom: 0.3rem;
+    }
+    .confirm-box .confirm-msg {
+      font-size: 0.85rem;
+      color: #718096;
+      margin-bottom: 1.1rem;
+    }
+    .confirm-actions {
+      display: flex;
+      gap: 0.6rem;
+    }
+    .confirm-actions button {
+      flex: 1;
+      padding: 0.65rem;
+      font-size: 0.9rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-confirm-cancel { background: #e2e8f0; color: #4a5568; }
+    .btn-confirm-cancel:active { background: #cbd5e0; }
+    .btn-confirm-delete { background: #e53e3e; color: #fff; }
+    .btn-confirm-delete:active { background: #c53030; }
+
     #permissionWarning {
       font-size: 0.8rem;
       color: #c05621;
@@ -383,6 +444,19 @@
 </div>
 
 <div id="toast"></div>
+
+<!-- Confirmation dialog -->
+<div class="confirm-overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <div class="confirm-icon">🗑</div>
+    <div class="confirm-title">Delete record?</div>
+    <div class="confirm-msg">This action cannot be undone.</div>
+    <div class="confirm-actions">
+      <button class="btn-confirm-cancel" id="confirmCancel">Cancel</button>
+      <button class="btn-confirm-delete" id="confirmOk">Delete</button>
+    </div>
+  </div>
+</div>
 
 <script>
 /* ── IndexedDB layer ─────────────────────────────────────────────── */
@@ -565,6 +639,27 @@ function toast(msg) {
   setTimeout(() => el.classList.remove('show'), 2200);
 }
 
+/* ── Confirmation dialog ─────────────────────────────────────────── */
+function confirmDialog() {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('confirmOverlay');
+    overlay.classList.add('show');
+    function finish(result) {
+      overlay.classList.remove('show');
+      document.getElementById('confirmOk').removeEventListener('click', onOk);
+      document.getElementById('confirmCancel').removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onBackdrop);
+      resolve(result);
+    }
+    function onOk() { finish(true); }
+    function onCancel() { finish(false); }
+    function onBackdrop(e) { if (e.target === overlay) finish(false); }
+    document.getElementById('confirmOk').addEventListener('click', onOk);
+    document.getElementById('confirmCancel').addEventListener('click', onCancel);
+    overlay.addEventListener('click', onBackdrop);
+  });
+}
+
 /* ── App ─────────────────────────────────────────────────────────── */
 const app = (() => {
   let db = null;
@@ -598,6 +693,7 @@ const app = (() => {
   }
 
   async function deleteEntry(id) {
+    if (!await confirmDialog()) return;
     await deleteRecord(db, id);
     await refresh();
   }
