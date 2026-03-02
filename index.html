@@ -744,7 +744,7 @@ if ('serviceWorker' in navigator) {
 /* ── Reminder UI (ICS-based) ─────────────────────────────────────── */
 const reminderUI = (() => {
   const STORAGE_KEY = 'bpReminderSettings';
-  const DEFAULTS = { count: 2, times: ['09:00', '21:00'] };
+  const DEFAULTS = { count: 2, times: ['09:00', '21:00'], uids: [], sequence: 0 };
   let settings = { ...DEFAULTS };
   let panelOpen = false;
 
@@ -795,8 +795,14 @@ const reminderUI = (() => {
   function downloadIcs() {
     const times = settings.times.slice(0, settings.count);
     const now = new Date();
-    // Start from tomorrow
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    // Ensure we have a stable UID per slot; increment sequence on each download
+    while (settings.uids.length < 4) {
+      settings.uids.push(`${Date.now()}-${settings.uids.length}@bpmonitor`);
+    }
+    settings.sequence = (settings.sequence || 0) + 1;
+    persist();
 
     function icsDate(date, h, m) {
       const pad = n => String(n).padStart(2, '0');
@@ -806,16 +812,16 @@ const reminderUI = (() => {
     const pad = n => String(n).padStart(2, '0');
     const now = new Date();
     const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth()+1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
-    let uidCounter = Date.now();
 
-    const events = times.map(t => {
+    const events = times.map((t, i) => {
       const [h, m] = t.split(':').map(Number);
       const dtStart = icsDate(start, h, m);
       return [
         'BEGIN:VEVENT',
-        `UID:${uidCounter++}@bpmonitor`,
+        `UID:${settings.uids[i]}`,
         `DTSTAMP:${dtstamp}`,
         `DTSTART:${dtStart}`,
+        `SEQUENCE:${settings.sequence}`,
         'DURATION:PT5M',
         'RRULE:FREQ=DAILY',
         'SUMMARY:Blood Pressure Measurement',
