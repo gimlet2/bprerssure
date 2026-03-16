@@ -224,6 +224,13 @@
       color: #2d3748;
     }
 
+    .calendar-hint {
+      font-size: 0.78rem;
+      color: #718096;
+      margin: 0.4rem 0 0.8rem;
+      line-height: 1.4;
+    }
+
     .settings-section-label {
       font-size: 0.72rem;
       font-weight: 700;
@@ -363,6 +370,7 @@
     </div>
     <div class="time-slots" id="timeSlots"></div>
     <button class="btn btn-calendar" onclick="reminderUI.downloadIcs()">📅 Add to Calendar</button>
+    <p class="calendar-hint">Import the file into your calendar app. <strong>Google Calendar</strong> users: after importing, open each event and enable notifications there — Google ignores notification settings in imported files.</p>
 
     <p class="settings-section-label">💾 Data</p>
     <button class="btn btn-export" onclick="app.exportCsv()" id="exportBtn" style="display:none">⬇ Export CSV</button>
@@ -804,6 +812,7 @@ const reminderUI = (() => {
     settings.sequence = (settings.sequence || 0) + 1;
     persist();
 
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
     const pad = n => String(n).padStart(2, '0');
     function icsDate(date, h, m) {
       return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(h)}${pad(m)}00`;
@@ -814,20 +823,33 @@ const reminderUI = (() => {
     const events = times.map((t, i) => {
       const [h, m] = t.split(':').map(Number);
       const dtStart = icsDate(start, h, m);
+      // Explicit DTEND 5 minutes after start (more compatible than DURATION)
+      const endH = m >= 55 ? h + 1 : h;
+      const endM = (m + 5) % 60;
+      const dtEnd = icsDate(start, endH, endM);
       return [
         'BEGIN:VEVENT',
         `UID:${settings.uids[i]}`,
         `DTSTAMP:${dtstamp}`,
-        `DTSTART:${dtStart}`,
+        `DTSTART;TZID=${tz}:${dtStart}`,
+        `DTEND;TZID=${tz}:${dtEnd}`,
         `SEQUENCE:${settings.sequence}`,
-        'DURATION:PT5M',
         'RRULE:FREQ=DAILY',
         'SUMMARY:Blood Pressure Measurement',
         'DESCRIPTION:Time to take your blood pressure measurement.',
+        'TRANSP:TRANSPARENT',
+        'CLASS:PRIVATE',
+        'X-APPLE-DEFAULT-ALARM:TRUE',
+        // Display alarm (works on most platforms)
         'BEGIN:VALARM',
-        'TRIGGER:PT0S',
+        'TRIGGER:-PT0S',
         'ACTION:DISPLAY',
         'DESCRIPTION:Time to take your blood pressure measurement.',
+        'END:VALARM',
+        // Audio alarm (triggers sound on Apple devices)
+        'BEGIN:VALARM',
+        'TRIGGER:-PT0S',
+        'ACTION:AUDIO',
         'END:VALARM',
         'END:VEVENT'
       ].join('\r\n');
@@ -839,6 +861,9 @@ const reminderUI = (() => {
       'PRODID:-//Blood Pressure Monitor//EN',
       'CALSCALE:GREGORIAN',
       'METHOD:PUBLISH',
+      `X-WR-CALNAME:Blood Pressure Reminders`,
+      'X-WR-CALDESC:Daily blood pressure measurement reminders',
+      `X-WR-TIMEZONE:${tz}`,
       ...events,
       'END:VCALENDAR'
     ].join('\r\n');
