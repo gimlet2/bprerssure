@@ -1171,6 +1171,7 @@ const cameraOCR = (() => {
     try {
       const processed = preprocessCanvas(video);
       const { data: { text } } = await worker.recognize(processed);
+      toast(text);
       const { sys, dia, pulse } = parseValues(text);
       if (sys && dia) {
         document.getElementById('sys').value = sys;
