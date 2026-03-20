@@ -317,6 +317,89 @@
     }
     .btn-calendar { background: #3182ce; color: #fff; margin-top: 0.5rem; }
     .btn-calendar:active { background: #2b6cb0; }
+
+    /* Camera OCR */
+    .camera-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      padding: 1rem;
+      gap: 0.6rem;
+      opacity: 0;
+      transition: opacity 0.15s;
+      pointer-events: none;
+    }
+    .camera-overlay.show { opacity: 1; pointer-events: all; }
+    .camera-viewport {
+      position: relative;
+      width: 100%;
+      max-width: 480px;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .camera-viewport video {
+      width: 100%;
+      display: block;
+      max-height: 55vh;
+      object-fit: cover;
+    }
+    .camera-guide {
+      position: absolute;
+      inset: 18% 6%;
+      border: 2px solid rgba(72,187,120,0.9);
+      border-radius: 8px;
+      pointer-events: none;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    }
+    .camera-status {
+      color: #e2e8f0;
+      font-size: 0.85rem;
+      text-align: center;
+      min-height: 2.4rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .camera-actions {
+      display: flex;
+      gap: 0.8rem;
+      width: 100%;
+      max-width: 480px;
+    }
+    .btn-scan { background: #667eea; color: #fff; margin-top: 0.5rem; }
+    .btn-scan:active { background: #5a67d8; }
+    .btn-capture {
+      flex: 1;
+      padding: 0.75rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #48bb78;
+      color: #fff;
+      transition: background 0.2s;
+    }
+    .btn-capture:active { background: #38a169; }
+    .btn-capture:disabled { background: #a0aec0; cursor: not-allowed; }
+    .btn-camera-close {
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      font-weight: 700;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      background: #4a5568;
+      color: #fff;
+      transition: background 0.2s;
+    }
+    .btn-camera-close:active { background: #2d3748; }
   </style>
 </head>
 <body>
@@ -341,6 +424,7 @@
     </div>
   </div>
   <div class="timestamp-row" id="currentTime"></div>
+  <button class="btn btn-scan" onclick="cameraOCR.open()">📷 Scan from Camera</button>
   <button class="btn btn-primary" onclick="app.save()">Save</button>
 </div>
 
@@ -421,6 +505,20 @@
       <button class="btn-confirm-cancel" id="confirmCancel">Cancel</button>
       <button class="btn-confirm-delete" id="confirmOk">Delete</button>
     </div>
+  </div>
+</div>
+
+<!-- Camera OCR modal -->
+<div class="camera-overlay" id="cameraOverlay">
+  <div class="camera-viewport">
+    <video id="cameraVideo" autoplay playsinline muted></video>
+    <div class="camera-guide"></div>
+  </div>
+  <div class="camera-status" id="cameraStatus">Initializing…</div>
+  <canvas id="cameraCanvas" style="display:none"></canvas>
+  <div class="camera-actions">
+    <button class="btn-capture" id="captureBtn" onclick="cameraOCR.capture()">📷 Capture &amp; Read</button>
+    <button class="btn-camera-close" onclick="cameraOCR.close()">✕ Close</button>
   </div>
 </div>
 
@@ -916,6 +1014,169 @@ async function installApp() {
   if (isIOS && !isStandalone) {
     document.getElementById('iosInstallHint').style.display = '';
   }
+})();
+
+/* ── Camera OCR ──────────────────────────────────────────────────── */
+const cameraOCR = (() => {
+  let stream = null;
+  let worker = null;
+  let workerReady = false;
+  let workerBusy = false;
+
+  function setStatus(msg) {
+    document.getElementById('cameraStatus').textContent = msg;
+  }
+
+  function setCaptureEnabled(on) {
+    document.getElementById('captureBtn').disabled = !on;
+  }
+
+  function loadTesseract() {
+    return new Promise((resolve, reject) => {
+      if (window.Tesseract) { resolve(); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load Tesseract.js'));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function initWorker() {
+    if (workerReady) return true;
+    setStatus('⏳ Loading OCR engine…');
+    setCaptureEnabled(false);
+    try {
+      await loadTesseract();
+      worker = await Tesseract.createWorker('eng');
+      await worker.setParameters({
+        tessedit_char_whitelist: '0123456789/',
+        tessedit_pageseg_mode: '11',
+      });
+      workerReady = true;
+      setStatus('Point camera at your BP monitor display, then tap Capture');
+      setCaptureEnabled(true);
+      return true;
+    } catch (_) {
+      setStatus('⚠️ Could not load OCR engine. Check your connection and try again.');
+      return false;
+    }
+  }
+
+  async function open() {
+    const overlay = document.getElementById('cameraOverlay');
+    overlay.classList.add('show');
+    setCaptureEnabled(false);
+    setStatus('Starting camera…');
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      const video = document.getElementById('cameraVideo');
+      video.srcObject = stream;
+      await video.play();
+    } catch (_) {
+      setStatus('⚠️ Camera access denied or unavailable.');
+      return;
+    }
+    initWorker();
+  }
+
+  function close() {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop());
+      stream = null;
+    }
+    const video = document.getElementById('cameraVideo');
+    video.srcObject = null;
+    document.getElementById('cameraOverlay').classList.remove('show');
+  }
+
+  function preprocessCanvas(video) {
+    // Upscale 2× — doubling resolution gives Tesseract more pixel detail,
+    // which significantly improves digit recognition on small LCD displays.
+    const scale = 2;
+    const canvas = document.createElement('canvas');
+    canvas.width  = video.videoWidth  * scale;
+    canvas.height = video.videoHeight * scale;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      // Convert to grayscale using perceptual luminance weights
+      const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+      // Contrast stretch: remap the 80-230 input range to 0-255.
+      // BP monitor LCDs typically produce mid-grey digits (~80-230) against
+      // a similar-toned background; stretching this range to full black/white
+      // makes the digit edges sharp and dramatically improves OCR accuracy.
+      const v = Math.max(0, Math.min(255, (gray - 80) * (255 / 150)));
+      d[i] = d[i + 1] = d[i + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+  }
+
+  function parseValues(text) {
+    let sys = null, dia = null, pulse = null;
+    // Look for "NNN/NN" pattern (systolic/diastolic)
+    const slashM = text.match(/\b(\d{2,3})\s*\/\s*(\d{2,3})\b/);
+    if (slashM) {
+      const a = parseInt(slashM[1], 10);
+      const b = parseInt(slashM[2], 10);
+      if (a > b && a >= 60 && a <= 300 && b >= 40 && b <= 200) { sys = a; dia = b; }
+    }
+    // All standalone 2-3 digit numbers
+    const nums = [...text.matchAll(/\b(\d{2,3})\b/g)].map(m => parseInt(m[1], 10));
+    if (!sys || !dia) {
+      const candidates = nums.filter(n => n >= 60 && n <= 300).sort((a, b) => b - a);
+      if (candidates.length >= 2 && candidates[0] > candidates[1] && candidates[1] >= 40) {
+        sys = candidates[0];
+        dia = candidates[1];
+      }
+    }
+    // Pulse: clinically plausible range is 30-220 bpm; we exclude already-
+    // identified sys/dia values and pick the number closest to a resting
+    // heart rate of 70 bpm as the most likely pulse reading.
+    const pulseNums = nums.filter(n => n >= 30 && n <= 220 && n !== sys && n !== dia);
+    if (pulseNums.length) {
+      pulseNums.sort((a, b) => Math.abs(a - 70) - Math.abs(b - 70));
+      pulse = pulseNums[0];
+    }
+    return { sys, dia, pulse };
+  }
+
+  async function capture() {
+    if (workerBusy) return;
+    if (!workerReady) { setStatus('⏳ OCR engine is still loading, please wait…'); return; }
+    const video = document.getElementById('cameraVideo');
+    if (!video.videoWidth) { setStatus('⚠️ Camera not ready yet, please wait.'); return; }
+    workerBusy = true;
+    setCaptureEnabled(false);
+    setStatus('🔍 Scanning…');
+    try {
+      const processed = preprocessCanvas(video);
+      const { data: { text } } = await worker.recognize(processed);
+      const { sys, dia, pulse } = parseValues(text);
+      if (sys && dia) {
+        document.getElementById('sys').value = sys;
+        document.getElementById('dia').value = dia;
+        if (pulse) document.getElementById('pulse').value = pulse;
+        close();
+        toast(`Scanned: ${sys}/${dia}${pulse ? ` · ${pulse} bpm` : ''} ✓`);
+      } else {
+        setStatus('⚠️ Could not read values — reposition and try again.');
+        setCaptureEnabled(true);
+      }
+    } catch (_) {
+      setStatus('⚠️ Scan error — please try again.');
+      setCaptureEnabled(true);
+    } finally {
+      workerBusy = false;
+    }
+  }
+
+  return { open, close, capture };
 })();
 
 reminderUI.init();
