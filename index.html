@@ -1051,7 +1051,7 @@ const cameraOCR = (() => {
       worker = await Tesseract.createWorker('eng');
       await worker.setParameters({
         tessedit_char_whitelist: '0123456789/',
-        tessedit_pageseg_mode: '11',
+        tessedit_pageseg_mode: '4',
       });
       workerReady = true;
       setStatus('Point camera at your BP monitor display, then tap Capture');
@@ -1104,9 +1104,7 @@ const cameraOCR = (() => {
     const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const d = img.data;
 
-    // First pass: collect grayscale values to compute adaptive stretch range.
-    // Using the 5th/95th percentile avoids bright reflections or dark borders
-    // throwing off the range — this adapts to Omron and other LCD display types.
+    // First pass: convert to grayscale and build histogram.
     const pixelCount = d.length >> 2;
     const grays = new Uint8Array(pixelCount);
     const hist = new Int32Array(256);
@@ -1115,16 +1113,29 @@ const cameraOCR = (() => {
       grays[i >> 2] = g;
       hist[g]++;
     }
-    // Histogram-based percentile (O(n)) — no sort needed.
-    const p05 = Math.floor(pixelCount * 0.05);
-    const p95 = Math.floor(pixelCount * 0.95);
-    let lo = 0, hi = 255, cum = 0;
-    for (let v = 0; v < 256; v++) { cum += hist[v]; if (cum >= p05 && lo === 0) lo = v; if (cum >= p95) { hi = v; break; } }
-    const range = hi - lo || 1;
 
-    // Second pass: adaptive contrast stretch to full 0-255 range.
+    // Otsu's method: find the threshold that maximises between-class variance.
+    // This robustly separates the dark LCD digit segments from the lighter
+    // background without needing manual tuning for different lighting conditions.
+    let sum = 0;
+    for (let v = 0; v < 256; v++) sum += v * hist[v];
+    let sumB = 0, wB = 0, maxVar = 0, threshold = 128;
+    for (let v = 0; v < 256; v++) {
+      wB += hist[v];
+      if (!wB) continue;
+      const wF = pixelCount - wB;
+      if (!wF) break;
+      sumB += v * hist[v];
+      const mB = sumB / wB;
+      const mF = (sum - sumB) / wF;
+      const varBetween = wB * wF * (mB - mF) * (mB - mF);
+      if (varBetween > maxVar) { maxVar = varBetween; threshold = v; }
+    }
+
+    // Second pass: binarize — dark segments → black (0), background → white (255).
+    // Tesseract performs best on black text on a white background.
     for (let i = 0; i < d.length; i += 4) {
-      const v = Math.max(0, Math.min(255, (grays[i >> 2] - lo) * (255 / range)));
+      const v = grays[i >> 2] <= threshold ? 0 : 255;
       d[i] = d[i + 1] = d[i + 2] = v;
     }
     ctx.putImageData(img, 0, 0);
@@ -1140,22 +1151,24 @@ const cameraOCR = (() => {
       const b = parseInt(slashM[2], 10);
       if (a > b && a >= 60 && a <= 300 && b >= 40 && b <= 200) { sys = a; dia = b; }
     }
-    // All standalone 2-3 digit numbers
+    // All standalone 2-3 digit numbers in the order Tesseract found them
     const nums = [...text.matchAll(/\b(\d{2,3})\b/g)].map(m => parseInt(m[1], 10));
     if (!sys || !dia) {
-      const candidates = nums.filter(n => n >= 60 && n <= 300).sort((a, b) => b - a);
-      if (candidates.length >= 2 && candidates[0] > candidates[1] && candidates[1] >= 40) {
-        sys = candidates[0];
-        dia = candidates[1];
+      // Omron-style: numbers appear top-to-bottom as sys, dia, pulse.
+      // Scan in reading order: first plausible sys, then first smaller plausible dia.
+      for (let i = 0; i < nums.length; i++) {
+        if (!sys && nums[i] >= 60 && nums[i] <= 300) { sys = nums[i]; continue; }
+        if (sys && !dia && nums[i] >= 40 && nums[i] <= 200 && nums[i] < sys) { dia = nums[i]; break; }
       }
     }
-    // Pulse: clinically plausible range is 30-220 bpm; we exclude already-
-    // identified sys/dia values and pick the number closest to a resting
-    // heart rate of 70 bpm as the most likely pulse reading.
-    const pulseNums = nums.filter(n => n >= 30 && n <= 220 && n !== sys && n !== dia);
-    if (pulseNums.length) {
-      pulseNums.sort((a, b) => Math.abs(a - 70) - Math.abs(b - 70));
-      pulse = pulseNums[0];
+    // Pulse: clinically plausible range 30-220 bpm; exclude sys/dia already identified;
+    // pick the number closest to a resting heart rate of 70 bpm.
+    if (sys && dia) {
+      const pulseNums = nums.filter(n => n >= 30 && n <= 220 && n !== sys && n !== dia);
+      if (pulseNums.length) {
+        pulseNums.sort((a, b) => Math.abs(a - 70) - Math.abs(b - 70));
+        pulse = pulseNums[0];
+      }
     }
     return { sys, dia, pulse };
   }
